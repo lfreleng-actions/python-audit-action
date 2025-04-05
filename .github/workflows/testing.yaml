@@ -3,7 +3,7 @@
 # SPDX-FileCopyrightText: 2025 The Linux Foundation
 
 # Action test/validation workflow
-name: "Test GitHub Action 🧪"
+name: "GitHub Action"
 
 # yamllint disable-line rule:truthy
 on:
@@ -15,10 +15,15 @@ on:
 
 permissions: {}
 
+env:
+  # flask==0.5 contains a known security vulnerability
+  # yamllint disable-line rule:line-length
+  replacement_string: '[\"typer>=0.15.2\", \"jupyterlab>=4.3.6\", \"flask==0.5\"]'
+
 jobs:
   ### Test the GitHub Action in this Repository ###
   tests:
-    name: "Test local GitHub Action"
+    name: "Run Tests 🧪"
     runs-on: ubuntu-24.04
     permissions:
       contents: read
@@ -41,9 +46,42 @@ jobs:
           path_prefix: "test-python-project/"
           tox_build: false
 
-      # Perform Python project tests
+      # Perform Python project audit
       - name: "Run action: ${{ github.repository }}"
         uses: ./
+        with:
+          python_version: "${{ env.build_python }}"
+          path_prefix: "test-python-project/"
+
+      - name: "Inject known defective dependency"
+        # yamllint disable-line rule:line-length
+        uses: lfreleng-actions/file-sed-regex-action@efa95bbf4a4add4f30d972843ca7902e8f7e48e4 # v0.1.1
+        with:
+          flags: "-i -E"
+          # yamllint disable-line rule:line-length
+          regex: 's:^dependencies =.*$:dependencies = ${{ env.replacement_string }}:'
+          path: "test-python-project/pyproject.toml"
+
+      - name: "Check/validate string substitution"
+        shell: bash
+        run: |
+          # Check/validate string substitution
+          grep dependencies "test-python-project/pyproject.toml"
+
+      # Rebuild sample Python project
+      - name: "Rebuild Python Project"
+        # yamllint disable-line rule:line-length
+        uses: lfreleng-actions/python-build-action@759476bd3c476c1d16aae50ebddce1512ec290af # v0.1.1
+        with:
+          path_prefix: "test-python-project/"
+          tox_build: false
+          overwrite: true
+
+      # Perform audit where project has known security vulnerability
+      - name: "Run action: ${{ github.repository }} [Failure Test]"
+        uses: ./
+        # Override failure
+        continue-on-error: true
         with:
           python_version: "${{ env.build_python }}"
           path_prefix: "test-python-project/"
