@@ -12,6 +12,12 @@ inputs:
     description: 'Python version used to perform audit'
     required: true
   # Optional
+  artefact_name:
+    # Useful when building for multiple platforms/architectures
+    # Can be used to avoid downloading artefacts with conflicting names
+    description: 'Artefact name to download (defaults to project name)'
+    required: false
+    # type: string
   permit_fail:
     description: 'Continue/pass even when the audit fails'
     required: false
@@ -52,7 +58,8 @@ runs:
       # yamllint disable-line rule:line-length
       uses: actions/download-artifact@018cc2cf5baa6db3ef3c5f8a56943fffe632ef53 # v6.0.0
       with:
-        name: "${{ env.python_project_name }}"
+        # yamllint disable-line rule:line-length
+        name: "${{ inputs.artefact_name || env.python_project_name }}"
         path: "${{ inputs.artefact_path }}"
 
     - name: "Setup Python ${{ inputs.python_version }}"
@@ -72,17 +79,18 @@ runs:
           .tox
         # yamllint disable rule:line-length
         key: >-
-          python-${{ runner.os }}-${{ inputs.python_version }}-
+          python-${{ runner.os }}-${{ runner.arch }}-${{ inputs.python_version }}-
           ${{ hashFiles('**/requirements*.txt', '**/pyproject.toml', '**/poetry.lock', '**/Pipfile*', '**/setup.py', '**/setup.cfg') }}
         restore-keys: |
-          python-${{ runner.os }}-${{ inputs.python_version }}-
-          python-${{ runner.os }}-
+          python-${{ runner.os }}-${{ runner.arch }}-${{ inputs.python_version }}-
+          python-${{ runner.os }}-${{ runner.arch }}-
         # yamllint enable rule:line-length
 
     - name: 'Install build products/dependencies'
       shell: bash
       run: |
         # Install build products/dependencies
+        path_prefix="${{ inputs.path_prefix }}"
         echo 'Upgrading: pip, setuptools'
         python -m pip install --disable-pip-version-check \
           -q --upgrade pip setuptools
@@ -90,9 +98,11 @@ runs:
         for wheel in ${{ inputs.artefact_path }}/*.whl; do
                 pip install -q "$wheel"
         done
-        if [ -f 'requirements.txt' ]; then
-          echo 'Installing dependencies from: requirements.txt'
-          pip install -q -r requirements.txt
+        # Check for requirements.txt in path_prefix if provided
+        req_file="${path_prefix:+$path_prefix/}requirements.txt"
+        if [ -f "$req_file" ]; then
+          echo "Installing dependencies from: $req_file"
+          pip install -q -r "$req_file"
         fi
 
     - name: 'Auditing with: pypa/gh-action-pip-audit'

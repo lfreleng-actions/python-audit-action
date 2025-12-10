@@ -42,7 +42,7 @@ jobs:
       # Build sample Python project
       - name: "Build Python Project"
         # yamllint disable-line rule:line-length
-        uses: lfreleng-actions/python-build-action@3552106f5c8bfedebe4c38116abf3b9c289359ea # v0.1.22
+        uses: lfreleng-actions/python-build-action@e74a56d61b59b55516ee05037303528423d8ed5a # v1.0.0
         with:
           path_prefix: "test-python-project/"
           tox_build: false
@@ -72,7 +72,7 @@ jobs:
       # Rebuild sample Python project
       - name: "Rebuild Python Project"
         # yamllint disable-line rule:line-length
-        uses: lfreleng-actions/python-build-action@3552106f5c8bfedebe4c38116abf3b9c289359ea # v0.1.22
+        uses: lfreleng-actions/python-build-action@e74a56d61b59b55516ee05037303528423d8ed5a # v1.0.0
         with:
           path_prefix: "test-python-project/"
           tox_build: false
@@ -105,3 +105,39 @@ jobs:
           path_prefix: "test-python-project/"
           # Override failure
           permit_fail: true
+
+  ### Test custom artefact_name support ###
+  tests-custom-artefact-name:
+    name: "Test Custom Artefact Name"
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+    timeout-minutes: 12
+    steps:
+      - name: "Checkout repository"
+        uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8 # v6.0.1
+
+      - name: "Checkout sample project repository"
+        uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8 # v6.0.1
+        with:
+          repository: "lfreleng-actions/test-python-project"
+          path: "test-python-project"
+
+      # Build with custom artefact name
+      - name: "Build Python project with custom artefact name"
+        id: build-custom
+        # yamllint disable-line rule:line-length
+        uses: lfreleng-actions/python-build-action@e74a56d61b59b55516ee05037303528423d8ed5a # v1.0.0
+        with:
+          path_prefix: "test-python-project/"
+          artefact_name: "test-python-project-x64"
+          tox_build: false
+
+      # Audit with custom artefact name
+      # Will fail if artefact download does not work
+      - name: "Run action with custom artefact_name"
+        uses: ./
+        with:
+          python_version: "${{ env.build_python }}"
+          path_prefix: "test-python-project/"
+          artefact_name: "test-python-project-x64"
