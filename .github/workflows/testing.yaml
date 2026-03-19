@@ -17,8 +17,7 @@ permissions: {}
 
 env:
   # flask==0.5 contains a known security vulnerability
-  # yamllint disable-line rule:line-length
-  replacement_string: '[\"typer>=0.15.2\", \"jupyterlab>=4.3.6\", \"flask==0.5\"]'
+  DEFECTIVE_DEPS: '["typer>=0.15.2", "jupyterlab>=4.3.6", "flask==0.5"]'
 
 jobs:
   ### Test the GitHub Action in this Repository ###
@@ -55,19 +54,44 @@ jobs:
           path_prefix: "test-python-project/"
 
       - name: "Inject known defective dependency"
-        # yamllint disable-line rule:line-length
-        uses: lfreleng-actions/file-sed-regex-action@e2c1c94d7936e1ded3e5fa8109416383f472ef7c # v0.1.2
-        with:
-          flags: "-i -E"
-          # yamllint disable-line rule:line-length
-          regex: 's:^dependencies =.*$:dependencies = ${{ env.replacement_string }}:'
-          path: "test-python-project/pyproject.toml"
-
-      - name: "Check/validate string substitution"
         shell: bash
+        env:
+          INJECT_DEPS: ${{ env.DEFECTIVE_DEPS }}
         run: |
-          # Check/validate string substitution
-          grep dependencies "test-python-project/pyproject.toml"
+          # Inject known defective dependency
+          cat > /tmp/inject_deps.py << 'EOF'
+          import json, os, pathlib, re, tomllib
+
+          toml_path = pathlib.Path("test-python-project/pyproject.toml")
+          raw = toml_path.read_text()
+
+          # Parse to validate the file is valid TOML before modification
+          tomllib.loads(raw)
+
+          # Build replacement dependencies list from environment variable
+          new_deps = json.loads(os.environ["INJECT_DEPS"])
+          new_line = "dependencies = " + json.dumps(new_deps)
+
+          # Replace the (possibly multi-line) dependencies array
+          updated, count = re.subn(
+              r"^dependencies\s*=\s*\[.*?\]",
+              new_line,
+              raw,
+              count=1,
+              flags=re.MULTILINE | re.DOTALL,
+          )
+          assert count == 1, "dependencies array not found in pyproject.toml"
+
+          toml_path.write_text(updated)
+
+          # Validate the result is still valid TOML with expected deps
+          check = tomllib.loads(updated)
+          deps = check["project"]["dependencies"]
+          print(f"dependencies = {deps}")
+          assert deps == new_deps, f"deps mismatch: {deps} != {new_deps}"
+          print("TOML validation passed ✅")
+          EOF
+          python3 /tmp/inject_deps.py
 
       # Rebuild sample Python project
       - name: "Rebuild Python Project"
