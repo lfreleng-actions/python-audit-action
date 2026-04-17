@@ -41,7 +41,7 @@ jobs:
       # Build sample Python project
       - name: "Build Python Project"
         # yamllint disable-line rule:line-length
-        uses: lfreleng-actions/python-build-action@70572c4544ab913643a2ddcb05e8dbdab809a936 # v1.0.5
+        uses: lfreleng-actions/python-build-action@38b9a4e7ee34e56d178f5bd248df52e41f7d496e # v1.0.6
         with:
           path_prefix: "test-python-project/"
           tox_build: false
@@ -96,7 +96,7 @@ jobs:
       # Rebuild sample Python project
       - name: "Rebuild Python Project"
         # yamllint disable-line rule:line-length
-        uses: lfreleng-actions/python-build-action@70572c4544ab913643a2ddcb05e8dbdab809a936 # v1.0.5
+        uses: lfreleng-actions/python-build-action@38b9a4e7ee34e56d178f5bd248df52e41f7d496e # v1.0.6
         with:
           path_prefix: "test-python-project/"
           tox_build: false
@@ -151,7 +151,7 @@ jobs:
       - name: "Build Python project with custom artefact name"
         id: build-custom
         # yamllint disable-line rule:line-length
-        uses: lfreleng-actions/python-build-action@70572c4544ab913643a2ddcb05e8dbdab809a936 # v1.0.5
+        uses: lfreleng-actions/python-build-action@38b9a4e7ee34e56d178f5bd248df52e41f7d496e # v1.0.6
         with:
           path_prefix: "test-python-project/"
           artefact_name: "test-python-project-x64"
