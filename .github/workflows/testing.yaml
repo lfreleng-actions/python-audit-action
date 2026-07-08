@@ -13,6 +13,10 @@ on:
   pull_request:
     branches: ["main"]
 
+concurrency:
+  group: "${{ github.workflow }}-${{ github.ref }}"
+  cancel-in-progress: true
+
 permissions: {}
 
 env:
@@ -30,11 +34,14 @@ jobs:
     steps:
       - name: "Checkout repository"
         uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          persist-credentials: false
 
       # Perform setup prior to running test(s)
       - name: "Checkout sample project repository"
         uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
+          persist-credentials: false
           repository: "lfreleng-actions/test-python-project"
           path: "test-python-project"
 
@@ -140,10 +147,13 @@ jobs:
     steps:
       - name: "Checkout repository"
         uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          persist-credentials: false
 
       - name: "Checkout sample project repository"
         uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
+          persist-credentials: false
           repository: "lfreleng-actions/test-python-project"
           path: "test-python-project"
 
