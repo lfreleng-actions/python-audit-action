@@ -32,11 +32,6 @@ jobs:
       contents: read
     timeout-minutes: 12
     steps:
-      - name: "Checkout repository"
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          persist-credentials: false
-
       # Perform setup prior to running test(s)
       - name: "Checkout sample project repository"
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -56,7 +51,7 @@ jobs:
 
       # Perform Python project audit
       - name: "Run action: ${{ github.repository }}"
-        uses: ./
+        uses: $/
         with:
           # yamllint disable-line rule:line-length
           python_version: "${{ steps.build.outputs.build_python_version }}"
@@ -114,7 +109,7 @@ jobs:
       # Perform audit where project has known security vulnerability
       - name: "Run action: ${{ github.repository }} [Failure Test]"
         id: tests-fail
-        uses: ./
+        uses: $/
         # Override failure
         continue-on-error: true
         with:
@@ -133,7 +128,7 @@ jobs:
       # Perform audit where project has known security vulnerability
       - name: "Run action: ${{ github.repository }} [Failure Test]"
         id: tests-fail-permitted
-        uses: ./
+        uses: $/
         with:
           # yamllint disable-line rule:line-length
           python_version: "${{ steps.build.outputs.build_python_version }}"
@@ -149,11 +144,6 @@ jobs:
       contents: read
     timeout-minutes: 12
     steps:
-      - name: "Checkout repository"
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          persist-credentials: false
-
       - name: "Checkout sample project repository"
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -174,7 +164,7 @@ jobs:
       # Audit with custom artefact name
       # Will fail if artefact download does not work
       - name: "Run action with custom artefact_name"
-        uses: ./
+        uses: $/
         with:
           # yamllint disable-line rule:line-length
           python_version: "${{ steps.build-custom.outputs.build_python_version }}"
@@ -189,11 +179,6 @@ jobs:
       contents: read
     timeout-minutes: 12
     steps:
-      - name: "Checkout repository"
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          persist-credentials: false
-
       - name: "Checkout sample project repository"
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -225,7 +210,7 @@ jobs:
       # same. tests/test_install_step_guard.py draws that distinction.
       - name: "Run action against wheel-free artefact"
         id: no-wheels
-        uses: ./
+        uses: $/
         continue-on-error: true
         with:
           python_version: "3.13"
