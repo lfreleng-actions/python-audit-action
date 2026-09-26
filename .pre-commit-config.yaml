@@ -7,6 +7,7 @@ ci:
   skip:
     - gha-workflow-linter
     - aislop
+    - basedpyright
   autofix_commit_msg: |
     Chore: Pre-commit autofixes
 
