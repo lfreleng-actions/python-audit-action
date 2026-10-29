@@ -51,7 +51,7 @@ jobs:
     permissions:
       actions: write  # list and delete repository Actions caches
     # yamllint disable-line rule:line-length
-    uses: lfreleng-actions/generic-workflows/.github/workflows/clear-action-cache.yaml@0ed9c16d59a3ff92afad23a7c1aba3ab61238b87  # v0.4.3
+    uses: lfreleng-actions/generic-workflows/.github/workflows/clear-action-cache.yaml@9d4a5d5b7e30bcd26a0abffb5bf263fd11c13852  # v0.5.0
     with:
       key_pattern: ${{ inputs.key_pattern }}
       ref_filter: ${{ inputs.ref_filter }}
