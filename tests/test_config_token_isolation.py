@@ -60,7 +60,6 @@ def _config_step() -> dict:
     return _steps()[_index(lambda s: s.get("id") == CONFIG_STEP_ID)]
 
 
-@pytest.mark.xfail(strict=True, reason="config step runs after install")
 def test_token_steps_run_before_install():
     """Every step that receives the token runs before anything is installed."""
     install = _index(lambda s: s.get("name") == INSTALL_STEP)
@@ -137,7 +136,6 @@ def test_marker_wheel_fires_under_plain_python3(hostile_env):
     assert marker.read_text() == TOKEN_VALUE
 
 
-@pytest.mark.xfail(strict=True, reason="config step loads site-packages")
 def test_config_step_does_not_load_site_packages(hostile_env, tmp_path):
     """The config step's python3 never runs the audited environment's .pth."""
     path, marker = hostile_env

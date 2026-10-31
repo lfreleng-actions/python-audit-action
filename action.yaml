@@ -222,45 +222,10 @@ runs:
           python-${{ runner.os }}-${{ runner.arch }}-
         # yamllint enable rule:line-length
 
-    - name: 'Install build products/dependencies'
-      shell: bash
-      env:
-        INPUT_PATH_PREFIX: ${{ inputs.path_prefix }}
-        INPUT_ARTEFACT_PATH: ${{ inputs.artefact_path }}
-      run: |
-        # Install build products/dependencies
-        path_prefix="$INPUT_PATH_PREFIX"
-        echo 'Upgrading: pip, setuptools'
-        python -m pip install --disable-pip-version-check \
-          -q --upgrade pip setuptools
-        echo 'Installing built package(s) and dependencies'
-        # Collect the wheels via the glob directly. nullglob makes the
-        # pattern expand to nothing (rather than the literal pattern)
-        # when nothing matches, so an empty or mis-named artefact
-        # directory reports that plainly instead of handing pip a
-        # literal '*.whl' to choke on.
-        shopt -s nullglob
-        wheels=("$INPUT_ARTEFACT_PATH"/*.whl)
-        shopt -u nullglob
-
-        if [ "${#wheels[@]}" -eq 0 ]; then
-          echo "Error: no wheels found in: $INPUT_ARTEFACT_PATH ❌"
-          echo 'Check that the build uploaded artefacts, and that'
-          echo 'artefact_name matches the name used at upload time'
-          exit 1
-        fi
-
-        echo "Wheels to install: ${#wheels[@]}"
-        for wheel in "${wheels[@]}"; do
-          pip install -q "$wheel"
-        done
-        # Check for requirements.txt in path_prefix if provided
-        req_file="${path_prefix:+$path_prefix/}requirements.txt"
-        if [ -f "$req_file" ]; then
-          echo "Installing dependencies from: $req_file"
-          pip install -q -r "$req_file"
-        fi
-
+    # This step receives inputs.token, so it runs before the install
+    # step puts the audited project into this interpreter: a wheel's
+    # .pth file executes at interpreter start-up and could read the
+    # token. No step after the install may receive the token.
     - name: 'Resolve allow-list via config'
       id: config_resolve
       if: ${{ inputs.config != '' }}
@@ -313,7 +278,12 @@ runs:
         if [ "$ALLOW_LIST_SUMMARY" = "false" ]; then
           summary_target=""
         fi
-        python3 "${ACTION_PATH}/src/resolve_config_source.py" \
+        #
+        # -I ignores PYTHON* variables and the user site directory; -S
+        # skips site-packages and its .pth files. The resolver needs
+        # only the standard library, and a self-hosted runner's tool
+        # cache can still hold packages an earlier job installed.
+        python3 -I -S "${ACTION_PATH}/src/resolve_config_source.py" \
           --config "$CONFIG" \
           --workflow-org "$REPO_OWNER" \
           --family python-audit \
@@ -324,6 +294,45 @@ runs:
           --summary-unit Entries \
           --github-output "$GITHUB_OUTPUT" \
           --step-summary "$summary_target"
+
+    - name: 'Install build products/dependencies'
+      shell: bash
+      env:
+        INPUT_PATH_PREFIX: ${{ inputs.path_prefix }}
+        INPUT_ARTEFACT_PATH: ${{ inputs.artefact_path }}
+      run: |
+        # Install build products/dependencies
+        path_prefix="$INPUT_PATH_PREFIX"
+        echo 'Upgrading: pip, setuptools'
+        python -m pip install --disable-pip-version-check \
+          -q --upgrade pip setuptools
+        echo 'Installing built package(s) and dependencies'
+        # Collect the wheels via the glob directly. nullglob makes the
+        # pattern expand to nothing (rather than the literal pattern)
+        # when nothing matches, so an empty or mis-named artefact
+        # directory reports that plainly instead of handing pip a
+        # literal '*.whl' to choke on.
+        shopt -s nullglob
+        wheels=("$INPUT_ARTEFACT_PATH"/*.whl)
+        shopt -u nullglob
+
+        if [ "${#wheels[@]}" -eq 0 ]; then
+          echo "Error: no wheels found in: $INPUT_ARTEFACT_PATH ❌"
+          echo 'Check that the build uploaded artefacts, and that'
+          echo 'artefact_name matches the name used at upload time'
+          exit 1
+        fi
+
+        echo "Wheels to install: ${#wheels[@]}"
+        for wheel in "${wheels[@]}"; do
+          pip install -q "$wheel"
+        done
+        # Check for requirements.txt in path_prefix if provided
+        req_file="${path_prefix:+$path_prefix/}requirements.txt"
+        if [ -f "$req_file" ]; then
+          echo "Installing dependencies from: $req_file"
+          pip install -q -r "$req_file"
+        fi
 
     - name: 'Resolve vulnerability allow-list'
       id: allow_list
