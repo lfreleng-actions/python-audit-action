@@ -349,6 +349,34 @@ jobs:
           # Hash-pinned via uv.lock; --locked rejects lockfile drift.
           uv run --locked python -m pytest tests/test_install_step_guard.py -q
 
+  ### Unit cover for issue #253: config token kept from the audit ###
+  tests-config-token-isolation:
+    name: "Test Config Token Isolation"
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+    timeout-minutes: 5
+    steps:
+      - name: "Checkout repository"
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: "Install uv"
+        # yamllint disable-line rule:line-length
+        uses: astral-sh/setup-uv@07a047e608db84b3d8c06cd9a7c7dcc9c355c18e # v10.3.2
+        with:
+          # Pin the installer too; the action SHA alone leaves uv floating.
+          version: "0.13.4"
+          python-version: "3.13"
+
+      - name: "Run config token isolation tests"
+        shell: bash
+        run: |
+          # Hash-pinned via uv.lock; --locked rejects lockfile drift.
+          uv run --locked python -m pytest \
+            tests/test_config_token_isolation.py -q
+
   ### Unit cover for issue #215: permit_fail and cache scope ###
   tests-permit-fail-validation:
     name: "Test permit_fail Validation and Cache Scope"
