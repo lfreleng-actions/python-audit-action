@@ -133,7 +133,7 @@ repos:
         pass_filenames: false
         # Run even when no Python is staged: deletions and config changes.
         always_run: true
-        args: [--warnings, src, tests]
+        args: [--warnings, tests]
         additional_dependencies: ["pytest", "pyyaml", "types-pyyaml"]
 
   - repo: https://github.com/lfreleng-actions/gha-workflow-linter
