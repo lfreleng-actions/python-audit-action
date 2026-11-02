@@ -222,32 +222,19 @@ runs:
           python-${{ runner.os }}-${{ runner.arch }}-
         # yamllint enable rule:line-length
 
-    # This step receives inputs.token, so it runs before the install
-    # step puts the audited project into this interpreter: a wheel's
-    # .pth file executes at interpreter start-up and could read the
-    # token. No step after the install may receive the token.
-    - name: 'Resolve allow-list via config'
-      id: config_resolve
+    # Runs without the token: it only checks that 'config' is not
+    # combined with the other allow-list source inputs.
+    - name: 'Check config input exclusivity'
       if: ${{ inputs.config != '' }}
       shell: bash
       env:
-        CONFIG: "${{ inputs.config }}"
-        TOKEN: "${{ inputs.token }}"
-        REPO_OWNER: "${{ github.repository_owner }}"
         AL_PATH: "${{ inputs.allow_list_path }}"
         AL_URL: "${{ inputs.allow_list_url }}"
         AL_ORG: "${{ inputs.allow_list_org }}"
         AL_DISABLE: "${{ inputs.allow_list_disable }}"
-        ALLOW_LIST_SUMMARY: "${{ inputs.allow_list_summary }}"
-        ACTION_PATH: "${{ github.action_path }}"
       run: |
-        # Resolve allow-list via the 'config' uses-style coordinate.
+        # Check config input exclusivity
         set -euo pipefail
-
-        # Mask the token before anything else so it cannot leak.
-        if [ -n "$TOKEN" ]; then
-          echo "::add-mask::$TOKEN"
-        fi
 
         # Exclusivity: 'config' must not combine with the allow-list
         # source inputs (allow_list_summary is still honoured).
@@ -259,41 +246,28 @@ runs:
           exit 1
         fi
 
-        # Preflight: the shared resolver needs python3 on the runner.
-        if ! command -v python3 >/dev/null 2>&1; then
-          echo "::error::python3 is required for the 'config' input" \
-               "but was not found on this runner"
-          exit 1
-        fi
-
-        # The shared resolver writes ids/count/resolved_* to
-        # GITHUB_OUTPUT and a block to GITHUB_STEP_SUMMARY. A missing
-        # file at an auto-derived path exits 0 with empty ids (soft);
-        # an explicitly-named missing file or any validation/network
-        # failure exits non-zero and fails this step.
-        #
-        # An empty --step-summary target suppresses the summary block
-        # (e.g. matrix legs other than the first).
-        summary_target="$GITHUB_STEP_SUMMARY"
-        if [ "$ALLOW_LIST_SUMMARY" = "false" ]; then
-          summary_target=""
-        fi
-        #
-        # -I ignores PYTHON* variables and the user site directory; -S
-        # skips site-packages and its .pth files. The resolver needs
-        # only the standard library, and a self-hosted runner's tool
-        # cache can still hold packages an earlier job installed.
-        python3 -I -S "${ACTION_PATH}/src/resolve_config_source.py" \
-          --config "$CONFIG" \
-          --workflow-org "$REPO_OWNER" \
-          --family python-audit \
-          --mode vulns \
-          --token-env TOKEN \
-          --content-key ids \
-          --summary-title "🐍 Python audit allow-list" \
-          --summary-unit Entries \
-          --github-output "$GITHUB_OUTPUT" \
-          --step-summary "$summary_target"
+    # This step receives inputs.token, so it runs before the install
+    # step puts the audited project into this interpreter: a wheel's
+    # .pth file executes at interpreter start-up and could read the
+    # token. No step after the install may receive the token.
+    #
+    # harden-runner-block-action owns the shared resolver; its
+    # resolve-config sub-action masks the token and runs the resolver
+    # with python3 -I -S. A miss at an auto-derived path exits 0 with
+    # found=false; any other failure fails this step.
+    - name: 'Resolve allow-list via config'
+      id: config_resolve
+      if: ${{ inputs.config != '' }}
+      # yamllint disable-line rule:line-length
+      uses: lfreleng-actions/harden-runner-block-action/resolve-config@afc0dd89e8fd92e91ed6126bca6b2ba650eddee0  # v0.16.0
+      with:
+        config: ${{ inputs.config }}
+        token: ${{ inputs.token }}
+        family: 'python-audit'
+        mode: 'vulns'
+        summary: ${{ inputs.allow_list_summary }}
+        summary_title: '🐍 Python audit allow-list'
+        summary_unit: 'Entries'
 
     - name: 'Install build products/dependencies'
       shell: bash
@@ -568,7 +542,7 @@ runs:
       env:
         BASE_IGNORE: "${{ inputs.ignore_vulns }}"
         # yamllint disable-line rule:line-length
-        ALLOW_LIST_IDS: "${{ steps.allow_list.outputs.ids }} ${{ steps.config_resolve.outputs.ids }}"
+        ALLOW_LIST_IDS: "${{ steps.allow_list.outputs.ids }} ${{ steps.config_resolve.outputs.entries }}"
       run: |
         # Merge ignore_vulns with allow-list IDs (whitespace-
         # separated, de-duplicated, order-preserving).

@@ -13,23 +13,14 @@
 # rules run and broke repositories across this organisation, on code
 # nobody had touched.
 #
-# The selection below is deliberately narrow: it is the widest set this
-# repository already satisfies, so pinning changes no behaviour today.
-# It is a subset of the organisation superset
-# ("E", "W", "F", "I", "B", "C4", "UP"), short by "I" and "B".  Adopting
-# those two is worthwhile but is a code change, not a configuration one:
-#
-#   - "B" adds one B904 (raise-without-from) site in
-#     src/resolve_config_source.py, which needs a judgement about which
-#     exception context to preserve.
-#   - "I" flags the import block in the test modules, which deliberately
-#     call sys.path.insert() before importing the module under test.
-#     One of those files is mirrored byte-for-byte with a sibling
-#     repository and is marked "DO NOT EDIT IN ISOLATION", so touching
-#     it requires paired pull requests in both repositories.
-#
-# Both belong in their own reviewed change rather than riding along with
-# a version bump.
+# The selection below is deliberately narrow: when it was pinned, it
+# was the widest set this repository satisfied, so pinning changed no
+# behaviour.  It is a subset of the organisation superset
+# ("E", "W", "F", "I", "B", "C4", "UP"), short by "I" and "B".  The
+# code that broke those two has since moved to
+# harden-runner-block-action, so adopting them now changes only this
+# file, and belongs in its own reviewed change rather than riding along
+# with a version bump.
 #
 # Note that this pins the rule set at CATEGORY level, not rule level.
 # Ruff selectors are prefixes, so a future release adding new E* or F*

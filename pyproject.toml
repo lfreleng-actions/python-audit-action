@@ -10,9 +10,8 @@
 name = "python-audit-action"
 # Required by the [project] table even though nothing is published.
 version = "0.0.0"
-# The helper in src/ runs under the interpreter the caller's
-# python_version input selects, so lock for the oldest CPython the
-# action supports; the self-tests run on the newest.
+# Lock for the oldest CPython the action supports; the self-tests run
+# on the newest.
 requires-python = ">=3.10"
 
 [tool.uv]
@@ -31,7 +30,4 @@ pythonPlatform = "All"
 typeCheckingMode = "standard"
 # Matches the directories the pre-commit hook passes, so a bare
 # basedpyright run or an editor's language server analyses the same set.
-include = ["src", "tests"]
-# The tests import the helper as a top-level module after putting src/
-# on sys.path, so resolve it from there.
-extraPaths = ["src"]
+include = ["tests"]

@@ -336,10 +336,10 @@ commit supplied the allow-list.
 > `python3 -I -S`, so code from the audited project and its
 > dependencies never runs alongside `token`. GitHub-hosted runners
 > ship both tools; on self-hosted runners `python3` and `git` must sit
-> on `PATH`. Both repositories mirror the
-> shared parser `src/resolve_config_source.py`, and changes must land
-> as paired pull requests across `python-audit-action` and
-> `harden-runner-block-action`.
+> on `PATH`. The resolver comes from the `resolve-config` sub-action of
+> `harden-runner-block-action`, pinned by commit SHA in `action.yaml`.
+> Changes to `config` resolution belong in that repository and arrive
+> here through Dependabot updates to the pin.
 
 #### Suppressing the step summary on matrix jobs
 
