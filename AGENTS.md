@@ -38,3 +38,12 @@ a pull request, not the full set:
 dependency group in `pyproject.toml`, regenerate the lockfile with
 `uv lock`, using the uv version the workflows pin, so `--locked` keeps
 passing in CI.
+
+`config` resolution is not implemented here. The `config_resolve` step
+in `action.yaml` calls
+`lfreleng-actions/harden-runner-block-action/resolve-config`, pinned
+by commit SHA and bumped by Dependabot. A change to how `config`
+resolves belongs in that repository; this one picks it up through the
+pin. Keep that step before `Install build products/dependencies`:
+`tests/test_config_token_isolation.py` enforces that no step receiving
+`inputs.token` runs after the install.
