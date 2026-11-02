@@ -52,6 +52,8 @@ import re
 import subprocess
 import sys
 import tempfile
+import time
+from collections.abc import Callable
 
 # Hard ceiling on the file size we will read out of the fetched tree, to
 # stop a misconfigured or hostile repo from exhausting runner memory.
@@ -73,6 +75,28 @@ SEGMENT_RE = re.compile(r"^[A-Za-z0-9._-]+$")
 # the characters git permits, sufficient for our use and safe to hand to
 # the git CLI as a positional argument.
 REF_RE = re.compile(r"^[A-Za-z0-9._/-]+$")
+
+# Seconds to wait before each retry of a transiently refused fetch; one
+# more attempt is made than there are entries here.
+FETCH_BACKOFF_SECONDS = (2, 5)
+
+# Fetch failures that no retry can fix: the ref, the repository or the
+# credential is wrong.
+_FATAL_FETCH_RE = re.compile(
+    r"couldn't find remote ref|not our ref|Repository not found",
+    re.IGNORECASE,
+)
+
+# The HTTP status git reports, in either of the shapes it uses:
+# "The requested URL returned error: 403" or "RPC failed; HTTP 503".
+_HTTP_STATUS_RE = re.compile(r"(?:returned error:|\bHTTP)\s*(\d{3})\b")
+
+# Connection-level failures that a later attempt may not hit.
+_TRANSIENT_FETCH_RE = re.compile(
+    r"Could not resolve host|Failed to connect|Connection reset"
+    r"|Operation timed out|early EOF|RPC failed",
+    re.IGNORECASE,
+)
 
 
 class ResolveError(Exception):
@@ -268,13 +292,33 @@ def resolve(
 # ---------------------------------------------------------------------
 
 
-def _run_git(args: list[str], timeout: int) -> subprocess.CompletedProcess:
+def _run_git(args: list[str], timeout: float) -> subprocess.CompletedProcess:
     return subprocess.run(
         ["git", *args],
         capture_output=True,
         text=True,
         timeout=timeout,
     )
+
+
+def _transient_fetch_failure(stderr: str) -> str:
+    """Name a fetch failure worth retrying, or return '' when it is not.
+
+    A refused or dropped request (HTTP 403, 408, 429, 5xx, or a
+    connection-level error) may succeed on a later attempt. An unknown
+    ref, a missing repository, HTTP 401 or 404, or anything unrecognised
+    will not, so those return '' and fail at once.
+    """
+    if _FATAL_FETCH_RE.search(stderr):
+        return ""
+    status = _HTTP_STATUS_RE.search(stderr)
+    if status:
+        code = int(status.group(1))
+        if code in (403, 408, 429) or 500 <= code <= 599:
+            return f"HTTP {code}"
+        return ""
+    connection = _TRANSIENT_FETCH_RE.search(stderr)
+    return connection.group(0) if connection else ""
 
 
 def fetch_file(
@@ -287,6 +331,8 @@ def fetch_file(
     timeout: int = 30,
     fallback_dir: str = "",
     fallback_filename: str = "",
+    sleep: Callable[[float], None] = time.sleep,
+    clock: Callable[[], float] = time.monotonic,
 ) -> dict:
     """Shallow-fetch `ref` and return the first existing candidate file.
 
@@ -294,6 +340,14 @@ def fetch_file(
     `git fetch --depth 1 <sha>` for reachable commits. Returns a dict with
     found (bool), resolved_sha, matched_path, content (str | None) and
     fallback_used (bool).
+
+    A fetch that fails transiently (GitHub refusing or dropping the
+    request) is retried after each delay in FETCH_BACKOFF_SECONDS, so
+    long as the retry fits inside `timeout`. Every fetch gets only the
+    time left before that deadline, and no retry starts once it has
+    passed. `sleep` performs the wait and `clock` reads the time; both
+    exist so tests can skip real waiting. Each retry logs one line to
+    stderr.
 
     When every candidate misses and `fallback_dir`/`fallback_filename`
     name an auto-derived search root, the fetched tree is scanned for
@@ -334,23 +388,51 @@ def fetch_file(
             except OSError as exc:
                 raise ResolveError(f"git auth header configuration failed: {exc}")
 
-        fetched = git(
-            [
-                "-c",
-                "protocol.version=2",
-                "fetch",
-                "-q",
-                "--depth",
-                "1",
-                "origin",
-                ref,
-            ]
-        )
-        if fetched.returncode != 0:
-            raise ResolveError(
-                f"git fetch of '{ref}' from {host_org}/{repo} failed: "
-                f"{fetched.stderr.strip()}"
+        fetch_args = [
+            "-c",
+            "protocol.version=2",
+            "fetch",
+            "-q",
+            "--depth",
+            "1",
+            "origin",
+            ref,
+        ]
+        attempts = len(FETCH_BACKOFF_SECONDS) + 1
+        deadline = clock() + timeout
+        remaining = float(timeout)
+        attempt = 1
+        while True:
+            fetched = _run_git(["-C", tmp, *fetch_args], remaining)
+            if fetched.returncode == 0:
+                break
+            stderr = fetched.stderr.strip()
+            message = f"git fetch of '{ref}' from {host_org}/{repo} failed: {stderr}"
+            transient = _transient_fetch_failure(stderr)
+            if not transient:
+                raise ResolveError(message)
+            # Every earlier attempt was transient too, or the loop would
+            # have stopped there, so the whole run was a refusal.
+            times = "once" if attempt == 1 else f"{attempt} times"
+            refused = ResolveError(
+                f"{message}; GitHub refused the fetch {times} ({transient}); "
+                "the ref may still be valid, see the retry log"
             )
+            delay = FETCH_BACKOFF_SECONDS[attempt - 1] if attempt < attempts else 0
+            if attempt >= attempts or delay >= deadline - clock():
+                raise refused
+            print(
+                f"fetch attempt {attempt} of {attempts} failed ({transient}); "
+                f"retrying in {delay} s",
+                file=sys.stderr,
+            )
+            sleep(delay)
+            # The wait may overrun its delay; never start a fetch the
+            # deadline has no time left for.
+            remaining = deadline - clock()
+            if remaining <= 0:
+                raise refused
+            attempt += 1
 
         # Peel to the underlying commit. For an annotated tag,
         # FETCH_HEAD can name the tag object rather than the commit it

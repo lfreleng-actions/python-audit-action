@@ -241,32 +241,44 @@ _FAKE_SHA = "a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2"
 
 
 def _install_fake_git(
-    monkeypatch, *, fetch_rc=0, sha=_FAKE_SHA, files=None, sizes=None, trees=None
+    monkeypatch,
+    *,
+    fetch_rc=0,
+    fetch_errors=None,
+    sha=_FAKE_SHA,
+    files=None,
+    sizes=None,
+    trees=None,
 ):
     """Stub rcs._run_git so fetch_file() runs without touching git/network.
 
     files maps an in-repo path to its content; sizes optionally overrides
     the reported blob size; trees is a set of paths reported as 'tree'
-    objects (directories). Returns the list of git argument vectors
-    (with the leading '-C <tmp>' stripped) for assertions.
+    objects (directories). fetch_errors lists the stderr of successive
+    failing fetches (exit 128); once it runs out, fetches exit with
+    fetch_rc. Returns the list of git argument vectors (with the leading
+    '-C <tmp>' stripped) for assertions.
     """
     files = files or {}
     sizes = sizes or {}
     trees = set(trees or [])
+    fetch_errors = list(fetch_errors or [])
     calls: list[list[str]] = []
 
     def fake_run_git(args, timeout):
         sub = list(args[2:])  # strip the leading ['-C', tmp]
         calls.append(sub)
 
-        def cp(rc, out=""):
-            return subprocess.CompletedProcess(args, rc, out, "")
+        def cp(rc, out="", err=""):
+            return subprocess.CompletedProcess(args, rc, out, err)
 
         if sub[:1] == ["init"]:
             return cp(0)
         if sub[:2] == ["remote", "add"]:
             return cp(0)
         if "fetch" in sub:
+            if fetch_errors:
+                return cp(128, err=fetch_errors.pop(0))
             return cp(fetch_rc)
         if sub[:1] == ["rev-parse"]:
             return cp(0, sha + "\n")
@@ -364,6 +376,176 @@ def test_fetch_file_fetch_failure_raises(monkeypatch):
             ref="main",
             candidates=["a/x.txt"],
         )
+
+
+_REFUSED_403 = (
+    "fatal: unable to access 'https://github.com/lfit/.github.git/': "
+    "The requested URL returned error: 403"
+)
+
+
+def _fetch_with_retries(delays):
+    """Call fetch_file with a sleep that records each backoff delay."""
+    return rcs.fetch_file(
+        host_org="lfit",
+        repo=".github",
+        ref="main",
+        candidates=["a/x.txt"],
+        sleep=delays.append,
+    )
+
+
+def _fetches(calls):
+    return [c for c in calls if "fetch" in c]
+
+
+def test_fetch_file_retries_refused_fetch(monkeypatch, capsys):
+    errors = [_REFUSED_403, _REFUSED_403]
+    calls = _install_fake_git(
+        monkeypatch, fetch_errors=errors, files={"a/x.txt": "CVE-2024-1234\n"}
+    )
+    delays: list[float] = []
+    result = _fetch_with_retries(delays)
+    assert result["found"] is True
+    assert len(_fetches(calls)) == 3
+    assert delays == [2, 5]
+    err = capsys.readouterr().err
+    assert "fetch attempt 1 of 3 failed (HTTP 403); retrying in 2 s" in err
+    assert "fetch attempt 2 of 3 failed (HTTP 403); retrying in 5 s" in err
+
+
+def test_fetch_file_refused_every_attempt_raises(monkeypatch):
+    errors = [_REFUSED_403] * 3
+    calls = _install_fake_git(monkeypatch, fetch_errors=errors)
+    delays: list[float] = []
+    with pytest.raises(rcs.ResolveError) as exc:
+        _fetch_with_retries(delays)
+    assert len(_fetches(calls)) == 3
+    assert delays == [2, 5]
+    message = str(exc.value)
+    assert message.startswith("git fetch of 'main' from lfit/.github failed: ")
+    assert (
+        "GitHub refused the fetch 3 times (HTTP 403); the ref may still "
+        "be valid, see the retry log"
+    ) in message
+
+
+def test_fetch_file_unknown_ref_fails_without_retry(monkeypatch):
+    errors = ["fatal: couldn't find remote ref main", _REFUSED_403]
+    calls = _install_fake_git(monkeypatch, fetch_errors=errors)
+    delays: list[float] = []
+    with pytest.raises(rcs.ResolveError) as exc:
+        _fetch_with_retries(delays)
+    assert len(_fetches(calls)) == 1
+    assert delays == []
+    assert "refused" not in str(exc.value)
+
+
+def test_fetch_file_retries_stay_inside_timeout(monkeypatch):
+    errors = [_REFUSED_403] * 3
+    calls = _install_fake_git(monkeypatch, fetch_errors=errors)
+    delays: list[float] = []
+    with pytest.raises(rcs.ResolveError) as exc:
+        rcs.fetch_file(
+            host_org="lfit",
+            repo=".github",
+            ref="main",
+            candidates=["a/x.txt"],
+            timeout=4,
+            sleep=delays.append,
+        )
+    # The 2 s wait fits a 4 s budget; the 5 s one does not.
+    assert len(_fetches(calls)) == 2
+    assert delays == [2]
+    assert "GitHub refused the fetch 2 times (HTTP 403)" in str(exc.value)
+
+
+def _install_slow_fetch(monkeypatch, fetch_seconds):
+    """Wrap the stubbed _run_git in a fake clock.
+
+    Each fetch advances the clock by fetch_seconds and records the
+    timeout it was given. Returns the clock (a one-item list holding
+    the current time) and the list of fetch timeouts.
+    """
+    now = [100.0]
+    fetch_timeouts: list[float] = []
+    stub = rcs._run_git
+
+    def slow_run_git(args, timeout):
+        if "fetch" in args:
+            assert timeout > 0
+            fetch_timeouts.append(timeout)
+            now[0] += fetch_seconds
+        return stub(args, timeout)
+
+    monkeypatch.setattr(rcs, "_run_git", slow_run_git)
+    return now, fetch_timeouts
+
+
+def _fetch_on_clock(now, sleep_seconds):
+    """Call fetch_file on the fake clock with a 4 s budget.
+
+    Each backoff advances the clock by sleep_seconds when given, or by
+    the requested delay otherwise; returns the requested delays.
+    """
+    delays: list[float] = []
+
+    def fake_sleep(delay):
+        delays.append(delay)
+        now[0] += delay if sleep_seconds is None else sleep_seconds
+
+    with pytest.raises(rcs.ResolveError) as exc:
+        rcs.fetch_file(
+            host_org="lfit",
+            repo=".github",
+            ref="main",
+            candidates=["a/x.txt"],
+            timeout=4,
+            sleep=fake_sleep,
+            clock=lambda: now[0],
+        )
+    return delays, str(exc.value)
+
+
+def test_fetch_file_retry_gets_only_remaining_time(monkeypatch):
+    _install_fake_git(monkeypatch, fetch_errors=[_REFUSED_403] * 3)
+    now, fetch_timeouts = _install_slow_fetch(monkeypatch, 1.8)
+    delays, message = _fetch_on_clock(now, None)
+    # 1.8 s of fetch and a 2 s wait leave 0.2 s of the 4 s budget.
+    assert delays == [2]
+    assert fetch_timeouts == [4, pytest.approx(0.2)]
+    assert "GitHub refused the fetch 2 times (HTTP 403)" in message
+
+
+def test_fetch_file_no_retry_after_oversleep(monkeypatch):
+    calls = _install_fake_git(monkeypatch, fetch_errors=[_REFUSED_403] * 3)
+    now, fetch_timeouts = _install_slow_fetch(monkeypatch, 1.8)
+    delays, message = _fetch_on_clock(now, 2.5)
+    # The 2 s wait overran to 2.5 s, past the deadline: no second fetch.
+    assert delays == [2]
+    assert fetch_timeouts == [4]
+    assert len(_fetches(calls)) == 1
+    assert "GitHub refused the fetch once (HTTP 403)" in message
+
+
+@pytest.mark.parametrize(
+    "stderr, expected",
+    [
+        (_REFUSED_403, "HTTP 403"),
+        ("error: RPC failed; HTTP 503 curl 22", "HTTP 503"),
+        ("The requested URL returned error: 429", "HTTP 429"),
+        ("The requested URL returned error: 408", "HTTP 408"),
+        ("fatal: Could not resolve host: github.com", "Could not resolve host"),
+        ("fatal: early EOF", "early EOF"),
+        ("The requested URL returned error: 404", ""),
+        ("The requested URL returned error: 401", ""),
+        ("remote: Repository not found.", ""),
+        ("fatal: remote error: upload-pack: not our ref deadbeef", ""),
+        ("fatal: something unexpected", ""),
+    ],
+)
+def test_transient_fetch_failure_classification(stderr, expected):
+    assert rcs._transient_fetch_failure(stderr) == expected
 
 
 def test_fetch_file_size_limit_raises(monkeypatch):
