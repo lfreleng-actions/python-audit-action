@@ -330,10 +330,13 @@ Using `config` makes the action expose: `resolved_host_org`,
 commit supplied the allow-list.
 
 > [!NOTE]
-> `config` resolution uses the runner's preinstalled `python3` (the
-> resolver needs no third-party packages) and shells out to `git` for
-> the fetch. GitHub-hosted runners ship both; on self-hosted runners
-> `python3` and `git` must sit on `PATH`. Both repositories mirror the
+> `config` resolution uses `python3` from `PATH` (the resolver needs no
+> third-party packages) and shells out to `git` for the fetch. It
+> runs before the action installs the project under audit, and with
+> `python3 -I -S`, so code from the audited project and its
+> dependencies never runs alongside `token`. GitHub-hosted runners
+> ship both tools; on self-hosted runners `python3` and `git` must sit
+> on `PATH`. Both repositories mirror the
 > shared parser `src/resolve_config_source.py`, and changes must land
 > as paired pull requests across `python-audit-action` and
 > `harden-runner-block-action`.
