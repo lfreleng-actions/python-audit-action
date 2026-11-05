@@ -204,11 +204,12 @@ runs:
       with:
         python-version: "${{ inputs.python_version }}"
 
-    # Only pip's cache is populated here: the install step runs pip
-    # into the setup-python interpreter, never creating a venv or using
-    # Poetry/Pipenv. The key hashes exactly what that step installs:
-    # the top-level wheels in artefact_path (downloaded above) and the
-    # optional requirements.txt in path_prefix.
+    # Only pip's cache is populated here: the install step runs pip in
+    # a fresh venv of the action's own, never Poetry/Pipenv, and that
+    # venv is rebuilt on every run, so it is not cached. The key hashes
+    # exactly what that step installs: the top-level wheels in
+    # artefact_path (downloaded above) and the optional
+    # requirements.txt in path_prefix.
     - name: 'Cache Python dependencies'
       uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
       with:
@@ -247,7 +248,7 @@ runs:
         fi
 
     # This step receives inputs.token, so it runs before the install
-    # step puts the audited project into this interpreter: a wheel's
+    # step puts the audited project into the audit venv: a wheel's
     # .pth file executes at interpreter start-up and could read the
     # token. No step after the install may receive the token.
     #
@@ -269,18 +270,23 @@ runs:
         summary_title: '🐍 Python audit allow-list'
         summary_unit: 'Entries'
 
+    # Installs into a venv of the action's own under RUNNER_TEMP, never
+    # into the setup-python interpreter: that one serves every later
+    # step of the calling job, and a .pth file or sitecustomize module
+    # from the audited project would run in each of them. The venv is
+    # never activated beyond this step, and PATH and VIRTUAL_ENV are
+    # left alone; the audit steps receive it through their
+    # virtual-environment input.
     - name: 'Install build products/dependencies'
+      id: install
       shell: bash
       env:
         INPUT_PATH_PREFIX: ${{ inputs.path_prefix }}
         INPUT_ARTEFACT_PATH: ${{ inputs.artefact_path }}
       run: |
         # Install build products/dependencies
+        set -euo pipefail
         path_prefix="$INPUT_PATH_PREFIX"
-        echo 'Upgrading: pip, setuptools'
-        python -m pip install --disable-pip-version-check \
-          -q --upgrade pip setuptools
-        echo 'Installing built package(s) and dependencies'
         # Collect the wheels via the glob directly. nullglob makes the
         # pattern expand to nothing (rather than the literal pattern)
         # when nothing matches, so an empty or mis-named artefact
@@ -297,16 +303,32 @@ runs:
           exit 1
         fi
 
+        # --clear empties a venv left by an earlier run of this action
+        # in the same job, so each audit sees only its own install.
+        venv="${RUNNER_TEMP}/python-audit-action/venv"
+        echo "Creating audit virtual environment: $venv"
+        python -m venv --clear "$venv"
+        venv_python="$venv/bin/python"
+        if [ ! -e "$venv_python" ]; then
+          # Windows lays out a venv differently
+          venv_python="$venv/Scripts/python.exe"
+        fi
+
+        echo 'Upgrading: pip, setuptools'
+        "$venv_python" -m pip install --disable-pip-version-check \
+          -q --upgrade pip setuptools
+        echo 'Installing built package(s) and dependencies'
         echo "Wheels to install: ${#wheels[@]}"
         for wheel in "${wheels[@]}"; do
-          pip install -q "$wheel"
+          "$venv_python" -m pip install -q "$wheel"
         done
         # Check for requirements.txt in path_prefix if provided
         req_file="${path_prefix:+$path_prefix/}requirements.txt"
         if [ -f "$req_file" ]; then
           echo "Installing dependencies from: $req_file"
-          pip install -q -r "$req_file"
+          "$venv_python" -m pip install -q -r "$req_file"
         fi
+        echo "venv=${venv}" >> "$GITHUB_OUTPUT"
 
     - name: 'Resolve vulnerability allow-list'
       id: allow_list
@@ -569,6 +591,7 @@ runs:
         inputs: "${{ inputs.path_prefix }}"
         summary: "${{ inputs.summary }}"
         ignore-vulns: "${{ steps.merged.outputs.ignore_vulns }}"
+        virtual-environment: "${{ steps.install.outputs.venv }}"
 
     - name: 'Auditing with: pypa/gh-action-pip-audit'
       id: audit_permitted
@@ -580,3 +603,4 @@ runs:
         inputs: "${{ inputs.path_prefix }}"
         summary: "${{ inputs.summary }}"
         ignore-vulns: "${{ steps.merged.outputs.ignore_vulns }}"
+        virtual-environment: "${{ steps.install.outputs.venv }}"

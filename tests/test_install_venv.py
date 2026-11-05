@@ -19,7 +19,6 @@ from __future__ import annotations
 
 from pathlib import Path
 
-import pytest
 import yaml
 
 from conftest import REPO_ROOT, install_step
@@ -47,7 +46,6 @@ def _wheel_dir(tmp_path: Path) -> Path:
     return dist
 
 
-@pytest.mark.xfail(strict=True, reason="install step uses the job's Python")
 def test_venv_created_from_job_python(run_install_step, tmp_path):
     """The job's python only creates the venv, cleared of earlier runs."""
     proc, log = run_install_step(_wheel_dir(tmp_path))
@@ -59,7 +57,6 @@ def test_venv_created_from_job_python(run_install_step, tmp_path):
     assert calls == [["-m", "venv", "--clear", str(venv)]], calls
 
 
-@pytest.mark.xfail(strict=True, reason="install step uses the job's Python")
 def test_every_install_runs_in_the_venv(run_install_step, tmp_path):
     """Wheels and tooling install through the venv's own interpreter."""
     dist = _wheel_dir(tmp_path)
@@ -78,7 +75,6 @@ def test_every_install_runs_in_the_venv(run_install_step, tmp_path):
     assert "requirements.txt" in installed, installs
 
 
-@pytest.mark.xfail(strict=True, reason="install step reports no venv")
 def test_venv_path_is_a_step_output(run_install_step, tmp_path):
     """The step reports the venv so the audit steps can use it."""
     proc, _ = run_install_step(_wheel_dir(tmp_path))
@@ -99,7 +95,6 @@ def test_job_environment_left_alone(run_install_step, tmp_path):
         assert content == "", f"{name}: {content!r}"
 
 
-@pytest.mark.xfail(strict=True, reason="audit steps use the job's Python")
 def test_audit_steps_use_the_install_venv():
     """Both pip-audit steps audit the venv the install step built."""
     step_id = install_step().get("id")
