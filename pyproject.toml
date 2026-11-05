@@ -20,7 +20,7 @@ package = false
 [dependency-groups]
 # What the self-test workflows install, from uv.lock with --locked.
 dev = [
-    "pytest>=9.0",
+    "pytest>=9.2.0",
     "PyYAML>=6.0",
 ]
 
