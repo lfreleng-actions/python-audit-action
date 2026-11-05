@@ -38,6 +38,24 @@ Below is a sample matrix job configuration for this action:
 
 Before the audit shown above, a Python build job has run (not shown).
 
+The action installs the downloaded wheels, and any `requirements.txt` in
+`path_prefix`, into a virtual environment of its own under
+`$RUNNER_TEMP/python-audit-action/venv`, and runs `pip-audit` from
+that environment. What `pip-audit` audits depends on `path_prefix`:
+
+- With `path_prefix` empty, it audits the installed environment: the
+  downloaded wheels, their dependencies and any `requirements.txt`.
+- With `path_prefix` set, the action passes that directory to
+  `pip-audit` as its input, which audits the dependencies the project
+  in that directory declares rather than the installed environment.
+  Those can differ from what the wheels and `requirements.txt`
+  installed.
+
+Either way, the action leaves the Python interpreter on `PATH` for
+later job steps alone: the project under audit, its dependencies and
+`pip-audit` do not get installed there, and the action changes neither
+`PATH` nor `VIRTUAL_ENV`.
+
 ### Multi-Architecture Example
 
 When auditing builds for different architectures, use the `artefact_name` input

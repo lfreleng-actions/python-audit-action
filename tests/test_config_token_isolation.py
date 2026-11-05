@@ -4,10 +4,11 @@
 """Regression cover for keeping the config token away from the audit.
 
 The install step puts the project under audit, and everything it pulls
-in, into the setup-python interpreter. A wheel can drop a ``.pth`` file
+in, into the action's audit venv. A wheel can drop a ``.pth`` file
 into site-packages, and Python runs its ``import`` lines at start-up,
-so any later step that runs that interpreter with ``inputs.token`` in
-its environment hands the token to the audited project's code.
+so any later step that runs that venv's interpreter, as the pip-audit
+steps do, with ``inputs.token`` in its environment hands the token to
+the audited project's code.
 
 These tests pin that no step that receives the token runs after the
 install step, and that the config step calls harden-runner-block-action's
