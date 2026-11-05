@@ -71,6 +71,30 @@ jobs:
           fi
           echo 'Clean project audit ran and passed ✅'
 
+      # The action installs into a venv of its own (#262), so the job's
+      # interpreter, which later steps share, must not hold the project
+      # under audit or pip-audit after it ran.
+      - name: "Validate job Python left untouched"
+        shell: bash
+        run: |
+          # Validate job Python left untouched
+          set -euo pipefail
+          echo "Job Python: $(command -v python)"
+          if python -c 'import lfreleng_test_python_project' 2>/dev/null
+          then
+            echo 'Error: audited project importable in job Python ❌'
+            exit 1
+          fi
+          installed=$(python -m pip list --disable-pip-version-check \
+            --format=freeze | tr '[:upper:]_.' '[:lower:]--')
+          for pkg in lfreleng-test-python-project pip-audit; do
+            if grep -q "^${pkg}==" <<< "$installed"; then
+              echo "Error: ${pkg} installed in job Python ❌"
+              exit 1
+            fi
+          done
+          echo 'Job Python left untouched ✅'
+
       # An unrecognised permit_fail must fail closed (#215). The inputs
       # match the passing run above, bar permit_fail and a fresh
       # artefact_path. Validation runs before the artefact download, so
@@ -347,7 +371,8 @@ jobs:
         shell: bash
         run: |
           # Hash-pinned via uv.lock; --locked rejects lockfile drift.
-          uv run --locked python -m pytest tests/test_install_step_guard.py -q
+          uv run --locked python -m pytest \
+            tests/test_install_step_guard.py tests/test_install_venv.py -q
 
   ### Unit cover for issue #253: config token kept from the audit ###
   tests-config-token-isolation:
