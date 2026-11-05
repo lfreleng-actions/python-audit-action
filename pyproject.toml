@@ -12,7 +12,7 @@ name = "python-audit-action"
 version = "0.0.0"
 # Lock for the oldest CPython the action supports; the self-tests run
 # on the newest.
-requires-python = ">=3.10"
+requires-python = ">=3.11"
 
 [tool.uv]
 package = false
@@ -25,7 +25,7 @@ dev = [
 ]
 
 [tool.basedpyright]
-pythonVersion = "3.10"
+pythonVersion = "3.11"
 pythonPlatform = "All"
 typeCheckingMode = "standard"
 # Matches the directories the pre-commit hook passes, so a bare
