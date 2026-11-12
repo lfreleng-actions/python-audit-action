@@ -260,7 +260,7 @@ runs:
       id: config_resolve
       if: ${{ inputs.config != '' }}
       # yamllint disable-line rule:line-length
-      uses: lfreleng-actions/harden-runner-block-action/resolve-config@afc0dd89e8fd92e91ed6126bca6b2ba650eddee0  # v0.16.0
+      uses: lfreleng-actions/harden-runner-block-action/resolve-config@bd83615a22b57835798adcb9ce753161464dfb40  # v0.16.2
       with:
         config: ${{ inputs.config }}
         token: ${{ inputs.token }}
