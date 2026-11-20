@@ -17,6 +17,11 @@ updates:
       prefix: "Chore"
     cooldown:
       default-days: 7
+      # Our own organisation's actions and reusable workflows skip the
+      # cooldown: we review those releases ourselves, and their fixes
+      # need to reach callers without a week's delay.
+      exclude:
+        - "lfreleng-actions/*"
     open-pull-requests-limit: 15
   # The self-test dependencies are locked with uv (pyproject.toml +
   # uv.lock); the uv ecosystem keeps that lockfile current.
