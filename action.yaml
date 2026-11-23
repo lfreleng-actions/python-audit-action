@@ -181,12 +181,35 @@ runs:
             ;;
         esac
 
-    - name: 'Extract Python project naming/metadata'
+    - name: 'Resolve project name'
       id: naming
+      if: inputs.artefact_name == ''
       # yamllint disable-line rule:line-length
-      uses: lfreleng-actions/python-project-name-action@084b052f75518277e8cecda32a6feab6e8340c14 # v0.1.12
+      uses: lfreleng-actions/build-metadata-action@689e13653176908922b12f85cb93b061c467ba6f  # v0.13.2
       with:
-        path_prefix: "${{ inputs.path_prefix }}"
+        path_prefix: "${{ inputs.path_prefix || '.' }}"
+        use_version_extract: 'false'
+        include_environment: 'false'
+        artifact_upload: 'false'
+        output_format: ''
+        python_offline_mode: 'true'
+
+    # build-metadata-action succeeds with an empty name when it finds
+    # no project to name, and download-artifact given an empty name
+    # downloads every artefact in the run, so stop here instead.
+    - name: 'Check artefact name'
+      shell: bash
+      env:
+        ARTEFACT_NAME: "${{ inputs.artefact_name }}"
+        PROJECT_NAME: "${{ steps.naming.outputs.project_name }}"
+      run: |
+        # Check artefact name
+        set -euo pipefail
+        if [ -z "$ARTEFACT_NAME" ] && [ -z "$PROJECT_NAME" ]; then
+          echo "::error::No artefact name: artefact_name is unset and" \
+               "no Python project name was found under path_prefix"
+          exit 1
+        fi
 
     - name: '⬇ Download build artefacts'
       # yamllint disable-line rule:line-length
@@ -195,7 +218,7 @@ runs:
         # yamllint disable-line rule:line-length
         name: >-
           ${{ inputs.artefact_name ||
-              steps.naming.outputs.python_project_name }}
+              steps.naming.outputs.project_name }}
         path: "${{ inputs.artefact_path }}"
 
     - name: "Setup Python ${{ inputs.python_version }}"
