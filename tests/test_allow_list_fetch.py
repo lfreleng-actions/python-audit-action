@@ -24,11 +24,11 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 FETCH_STEP = "Resolve vulnerability allow-list"
 EXPLICIT_URL = "https://example.invalid/allow_list.txt"
 GOOD_BODY = "CVE-2024-0001\n"
-PENDING = pytest.mark.xfail(strict=True, reason="retry not yet implemented")
 
 # Plays back one scripted attempt per call. For each attempt N the
 # scenario directory holds N.rc (curl exit code), N.code (HTTP status
-# written as -w would), optionally N.ra (a Retry-After value) and N.body
+# written as -w would), optionally N.ra (a raw Retry-After header line,
+# written verbatim) and N.body
 # (written to the -o file whatever the exit code, as curl does with a
 # partial transfer). Calls beyond the script fail the test loudly.
 CURL_STUB = """#!/usr/bin/env bash
@@ -52,7 +52,7 @@ code=$(cat "$STUB_DIR/$n.code")
 if [ -n "$hdr" ]; then
   printf 'HTTP/2 %s\\r\\n' "$code" > "$hdr"
   if [ -f "$STUB_DIR/$n.ra" ]; then
-    printf 'retry-after: %s\\r\\n' "$(cat "$STUB_DIR/$n.ra")" >> "$hdr"
+    printf '%s\\r\\n' "$(cat "$STUB_DIR/$n.ra")" >> "$hdr"
   fi
   printf '\\r\\n' >> "$hdr"
 fi
@@ -87,6 +87,7 @@ class Attempt(NamedTuple):
     code: str = "200"
     body: str = ""
     retry_after: str | None = None
+    retry_after_format: str = "retry-after: {}"
 
 
 class Result(NamedTuple):
@@ -128,7 +129,9 @@ def _run_fetch(tmp_path: Path):
             (stub_dir / f"{n}.code").write_text(attempt.code)
             (stub_dir / f"{n}.body").write_text(attempt.body)
             if attempt.retry_after is not None:
-                (stub_dir / f"{n}.ra").write_text(attempt.retry_after)
+                (stub_dir / f"{n}.ra").write_text(
+                    attempt.retry_after_format.format(attempt.retry_after)
+                )
         for k, skip in enumerate(skips, start=1):
             (stub_dir / f"skip.{k}").write_text(f"{skip}\n")
         stub = bin_dir / "curl"
@@ -187,7 +190,6 @@ def _warnings(result: Result) -> list[str]:
     return [line for line in result.proc.stdout.splitlines() if "::warning::" in line]
 
 
-@PENDING
 def test_503_then_200_succeeds_with_one_warning(run_fetch):
     """A single 503 blip is retried and the list still loads."""
     result = run_fetch(
@@ -205,7 +207,6 @@ def test_503_then_200_succeeds_with_one_warning(run_fetch):
     assert result.outputs["source"] == "default-url"
 
 
-@PENDING
 def test_connection_errors_then_200_succeeds(run_fetch):
     """Connection refused (7) then timeout (28) are both retried."""
     result = run_fetch(
@@ -224,7 +225,6 @@ def test_connection_errors_then_200_succeeds(run_fetch):
     assert result.outputs["ids"] == "CVE-2024-0001"
 
 
-@PENDING
 def test_persistent_503_fails_after_full_schedule(run_fetch):
     """An outage outlasting the schedule fails and counts the attempts."""
     result = run_fetch([Attempt(code="503", body="Service Unavailable")] * 5)
@@ -245,7 +245,6 @@ def test_every_attempt_bounded_by_max_time(run_fetch):
     assert all(0 < t <= 15 for t in result.max_times), result.max_times
 
 
-@PENDING
 def test_attempt_time_shrinks_to_remaining_budget(run_fetch):
     """An attempt late in the 90s bound gets only the time left.
 
@@ -258,7 +257,6 @@ def test_attempt_time_shrinks_to_remaining_budget(run_fetch):
     assert 9 <= result.max_times[1] <= 10, result.max_times
 
 
-@PENDING
 def test_retry_refused_when_delay_exhausts_budget(run_fetch):
     """No retry starts whose delay would end past the 90s bound.
 
@@ -294,7 +292,6 @@ def test_explicit_url_404_fails_without_retry(run_fetch):
     assert "HTTP 404" in result.proc.stdout
 
 
-@PENDING
 @pytest.mark.parametrize(
     "attempt",
     [
@@ -311,22 +308,30 @@ def test_permanent_errors_fail_without_retry(run_fetch, attempt):
     assert "1 attempt" in result.proc.stdout, result.proc.stdout
 
 
-@PENDING
 @pytest.mark.parametrize(
-    ("retry_after", "expected"),
-    [("3", 3), ("600", 30)],
-    ids=["honoured", "capped"],
+    ("retry_after", "header", "expected"),
+    [
+        ("3", "retry-after: {}", 3),
+        ("600", "retry-after: {}", 30),
+        ("3", "Retry-After:{}", 3),
+        ("0000003", "retry-after: {}", 3),
+        ("1000000", "retry-after: {}", 30),
+        ("99999999999999999999999", "retry-after: {}", 30),
+    ],
+    ids=["honoured", "capped", "no-space", "leading-zeros", "large", "overflow"],
 )
-def test_retry_after_is_honoured_and_capped(run_fetch, retry_after, expected):
+def test_retry_after_is_honoured_and_capped(run_fetch, retry_after, header, expected):
     """A 429 waits for the server's Retry-After, up to the cap."""
     result = run_fetch(
-        [Attempt(code="429", retry_after=retry_after), Attempt(body=GOOD_BODY)]
+        [
+            Attempt(code="429", retry_after=retry_after, retry_after_format=header),
+            Attempt(body=GOOD_BODY),
+        ]
     )
     assert result.proc.returncode == 0, _log(result)
     assert result.sleeps == [expected]
 
 
-@PENDING
 def test_partial_body_never_reaches_parser(run_fetch):
     """A failed attempt's body is discarded, not parsed.
 

@@ -372,11 +372,13 @@ runs:
         # Soft-fail rule:
         #   In the default-URL case (no path, no url), only an HTTP 404
         #   from the default URL is a soft miss (no central file
-        #   published) and proceeds silently. Transport failures
-        #   (DNS/TLS/timeout/max-filesize) and any other HTTP status
-        #   are hard errors. An explicitly-supplied path or url is a
-        #   hard failure when it cannot be loaded, since the caller
-        #   asked for it.
+        #   published) and proceeds silently. Transient failures
+        #   (HTTP 403/408/429/5xx, DNS/connect/TLS/timeout/reset) are
+        #   retried with backoff (see the retry policy below) and are
+        #   hard errors once retries run out; any other failure,
+        #   including max-filesize, is a hard error at once. An
+        #   explicitly-supplied path or url is a hard failure when it
+        #   cannot be loaded, since the caller asked for it.
         # Sanitisation:
         #   Every token is matched against a strict allow-list of
         #   vulnerability ID shapes (CVE-/GHSA-/PYSEC-/OSV-/PVE-).
@@ -474,50 +476,142 @@ runs:
             soft_fail="true"
           fi
 
-          # HTTPS-only, 15s timeout, 1 MiB size ceiling, follow
-          # redirects. We deliberately omit --fail and capture the HTTP
-          # status separately so that a genuine "file absent" (404) can
-          # be distinguished from transport failures (DNS/TLS/timeout/
-          # max-filesize). Only a 404 at the default URL is a soft
-          # miss; transport errors and other HTTP statuses are hard
-          # failures even in default-url mode.
-          tmp=$(mktemp)
-          trap 'rm -f "$tmp"' EXIT
-          set +e
-          http_code=$(curl --proto '=https' --tlsv1.2 \
-            -sSL --max-time 15 --max-filesize 1048576 \
-            -H 'User-Agent: lfreleng-actions/python-audit-action' \
-            -H 'Accept: text/plain, */*;q=0.5' \
-            -w '%{http_code}' \
-            -o "$tmp" \
-            -- "$resolved_url")
-          rc=$?
-          set -e
-          if [ "$rc" -ne 0 ]; then
-            # Transport failure (could not resolve/connect, TLS error,
-            # timeout, or response exceeded --max-filesize). Never a
-            # soft miss, since the file's presence is unknown.
-            echo "::error::Failed to fetch allow-list from" \
-                 "${resolved_url} (curl exit ${rc})"
-            exit 1
-          fi
-          if [ "$http_code" = "404" ] && [ "$soft_fail" = "true" ]; then
-            # No allow-list published for this org; proceed with
-            # whatever ignore_vulns provided.
-            echo "No central allow-list at default URL (HTTP 404);" \
-                 "proceeding without it"
-            emit "ids" ""
-            emit "source" "default-url-missing"
-            emit "resolved_url" "$resolved_url"
-            emit "count" "0"
-            exit 0
-          fi
-          if [ "$http_code" != "200" ]; then
-            echo "::error::Failed to fetch allow-list from" \
-                 "${resolved_url} (HTTP ${http_code})"
-            exit 1
-          fi
-          raw=$(cat -- "$tmp")
+          # Retry policy for the fetch, defined here and nowhere else.
+          # retry_delays: seconds to wait before each retry, so the
+          #   fetch makes at most ${#retry_delays[@]}+1 attempts. A 503
+          #   blip can last tens of seconds, so this backs off further
+          #   than the config path's git fetch.
+          # retry_after_cap: ceiling on a server's Retry-After.
+          # fetch_deadline: overall bound in seconds. No retry starts
+          #   whose delay would end past it, and each attempt's
+          #   --max-time is cut to the time left, so a real outage
+          #   still fails the job quickly.
+          # transient_curl_rc: curl exit codes retried: 6 (DNS), 7
+          #   (connection refused), 28 (timeout), 35 (TLS handshake),
+          #   52 (empty reply), 55 (send error/reset), 56 (receive
+          #   error/reset). Any other exit code, including 63
+          #   (--max-filesize exceeded), fails at once.
+          # Transient HTTP statuses are 403, 408, 429 and 5xx.
+          retry_delays=(2 5 10 20)
+          retry_after_cap=30
+          fetch_deadline=90
+          attempt_max_time=15
+          transient_curl_rc=" 6 7 28 35 52 55 56 "
+          max_attempts=$(( ${#retry_delays[@]} + 1 ))
+
+          # HTTPS-only, 1 MiB size ceiling, follow redirects. We
+          # deliberately omit --fail and capture the HTTP status
+          # separately so that a genuine "file absent" (404) can be
+          # told apart from other failures. Only a 404 at the default
+          # URL is a soft miss; every other non-200 outcome fails the
+          # step, after retries where it is transient. Each attempt
+          # writes to a fresh file, so a partial body from a failed
+          # attempt is never parsed.
+          tmpdir=$(mktemp -d)
+          trap 'rm -rf "$tmpdir"' EXIT
+          start=$SECONDS
+          attempt=0
+          body=""
+          while :; do
+            attempt=$((attempt + 1))
+            body="${tmpdir}/body.${attempt}"
+            headers="${tmpdir}/headers.${attempt}"
+            remaining=$(( fetch_deadline - (SECONDS - start) ))
+            max_time=$attempt_max_time
+            if [ "$remaining" -lt "$max_time" ]; then
+              max_time=$(( remaining > 1 ? remaining : 1 ))
+            fi
+            set +e
+            http_code=$(curl --proto '=https' --tlsv1.2 \
+              -sSL --max-time "$max_time" --max-filesize 1048576 \
+              -H 'User-Agent: lfreleng-actions/python-audit-action' \
+              -H 'Accept: text/plain, */*;q=0.5' \
+              -w '%{http_code}' \
+              -D "$headers" \
+              -o "$body" \
+              -- "$resolved_url")
+            rc=$?
+            set -e
+
+            if [ "$rc" -eq 0 ] && [ "$http_code" = "200" ]; then
+              break
+            fi
+            if [ "$rc" -eq 0 ] && [ "$http_code" = "404" ] \
+               && [ "$soft_fail" = "true" ]; then
+              # No allow-list published for this org; proceed with
+              # whatever ignore_vulns provided.
+              echo "No central allow-list at default URL (HTTP 404);" \
+                   "proceeding without it"
+              emit "ids" ""
+              emit "source" "default-url-missing"
+              emit "resolved_url" "$resolved_url"
+              emit "count" "0"
+              exit 0
+            fi
+
+            transient="false"
+            if [ "$rc" -ne 0 ]; then
+              failure="curl exit ${rc}"
+              if [[ "$transient_curl_rc" == *" ${rc} "* ]]; then
+                transient="true"
+              fi
+            else
+              failure="HTTP ${http_code}"
+              case "$http_code" in
+                403|408|429|5[0-9][0-9]) transient="true" ;;
+              esac
+            fi
+
+            delay=""
+            if [ "$transient" = "true" ] \
+               && [ "$attempt" -lt "$max_attempts" ]; then
+              delay="${retry_delays[$((attempt - 1))]}"
+              # Honour a Retry-After in seconds from the final response
+              # (the last header block when redirects were followed),
+              # capped, and never shorter than the schedule's delay.
+              # The field name matches with or without whitespace after
+              # the colon. Leading zeros are dropped and an over-long
+              # value caps before any arithmetic, so it cannot overflow.
+              # An HTTP-date Retry-After falls back to the schedule.
+              retry_after=$(awk '
+                { sub(/\r$/, "") }
+                /^HTTP\// { ra = "" }
+                tolower($0) ~ /^retry-after[ \t]*:/ {
+                  ra = $0
+                  sub(/^[^:]*:[ \t]*/, "", ra)
+                  sub(/[ \t]+$/, "", ra)
+                }
+                END { print ra }' \
+                "$headers" 2>/dev/null || true)
+              if [[ "$retry_after" =~ ^[0-9]+$ ]]; then
+                retry_after="${retry_after#"${retry_after%%[!0]*}"}"
+                retry_after="${retry_after:-0}"
+                if [ "${#retry_after}" -gt 4 ] \
+                   || [ "$retry_after" -gt "$retry_after_cap" ]; then
+                  retry_after=$retry_after_cap
+                fi
+                if [ "$retry_after" -gt "$delay" ]; then
+                  delay=$retry_after
+                fi
+              fi
+              if [ $(( SECONDS - start + delay )) -ge "$fetch_deadline" ]; then
+                delay=""
+              fi
+            fi
+
+            if [ -z "$delay" ]; then
+              plural="attempts"
+              [ "$attempt" -eq 1 ] && plural="attempt"
+              echo "::error::Failed to fetch allow-list from" \
+                   "${resolved_url} (${failure}) after ${attempt} ${plural}"
+              exit 1
+            fi
+            echo "::warning::Allow-list fetch attempt" \
+                 "${attempt}/${max_attempts} failed (${failure});" \
+                 "retrying in ${delay}s"
+            sleep "$delay"
+          done
+          raw=$(cat -- "$body")
           echo "Source: ${source} -> ${resolved_url}"
         fi
 
