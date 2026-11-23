@@ -279,6 +279,91 @@ jobs:
           path_prefix: "test-python-project/"
           artefact_name: "test-python-project-x64"
 
+  ### Verify the action stops when it cannot name the artefact ###
+  tests-empty-project-name:
+    name: "Test Empty Project Name Guard"
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+    timeout-minutes: 12
+    steps:
+      # build-metadata-action succeeds with an empty project_name here,
+      # and download-artifact given an empty name would fetch every
+      # artefact in the run, so the action must stop first.
+      - name: "Create directory holding no Python project"
+        shell: bash
+        run: |
+          # Create directory holding no Python project
+          mkdir -p no-project
+          echo 'Holds no Python project' > no-project/README.txt
+
+      # This proves the action fails cleanly on a real runner, but it
+      # cannot on its own prove the name guard is what failed: an
+      # earlier metadata failure, or a download that finds no artefact
+      # to fetch, leaves the same outcome and an absent artefact_path.
+      # tests/test_artefact_name_guard.py draws that distinction.
+      - name: "Run action: ${{ github.repository }} [No project name]"
+        id: tests-empty-project-name
+        uses: $/
+        continue-on-error: true
+        with:
+          python_version: "3.13"
+          path_prefix: "no-project/"
+          artefact_path: "empty-name-probe"
+
+      - name: "Validate empty project name was rejected"
+        shell: bash
+        env:
+          OUTCOME: "${{ steps.tests-empty-project-name.outcome }}"
+          # yamllint disable-line rule:line-length
+          AUDIT_OUTCOME: "${{ steps.tests-empty-project-name.outputs.audit_outcome }}"
+        run: |
+          # Validate empty project name was rejected
+          if [ "$OUTCOME" != 'failure' ]; then
+            echo 'Error: empty project name did not fail the action ❌'
+            echo "Actual outcome: $OUTCOME"
+            exit 1
+          fi
+          if [ -e empty-name-probe ]; then
+            echo 'Error: action reached the download; wrong failure ❌'
+            exit 1
+          fi
+          # No audit step ran, so the output must say so
+          if [ "$AUDIT_OUTCOME" != 'skipped' ]; then
+            echo 'Error: audit_outcome should be skipped ❌'
+            echo "audit_outcome: $AUDIT_OUTCOME"
+            exit 1
+          fi
+          echo 'Empty project name stopped the action ✅'
+
+  ### Unit cover proving the name guard stops an unnamed download ###
+  tests-artefact-name-guard:
+    name: "Test Artefact Name Guard"
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+    timeout-minutes: 5
+    steps:
+      - name: "Checkout repository"
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: "Install uv"
+        # yamllint disable-line rule:line-length
+        uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2  # v10.3.3
+        with:
+          # Pin the installer too; the action SHA alone leaves uv floating.
+          version: "0.13.4"
+          python-version: "3.13"
+
+      - name: "Run artefact name guard tests"
+        shell: bash
+        run: |
+          # Hash-pinned via uv.lock; --locked rejects lockfile drift.
+          uv run --locked python -m pytest \
+            tests/test_artefact_name_guard.py -q
+
   ### Verify the action fails clearly when no wheels are present ###
   tests-no-wheels:
     name: "Test No Wheels Guard"

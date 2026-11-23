@@ -56,6 +56,17 @@ later job steps alone: the project under audit, its dependencies and
 `pip-audit` do not get installed there, and the action changes neither
 `PATH` nor `VIRTUAL_ENV`.
 
+### Artefact name
+
+Without `artefact_name`, the action downloads the artefact named
+after the project: the `project_name` output of
+`lfreleng-actions/build-metadata-action`, the name
+`python-build-action` uploads under. That lookup adds
+`actions/setup-go` and a `go build` of the action to the job, about
+half a minute per run. Passing `artefact_name`, such as the name the
+build job reports, skips it. With `artefact_name` unset and no project
+name found under `path_prefix`, the action fails before any download.
+
 ### Multi-Architecture Example
 
 When auditing builds for different architectures, use the `artefact_name` input
@@ -384,7 +395,7 @@ template must cover both matrix and non-matrix jobs.
 | Variable Name      | Required | Default   | Description                                                                                                                                                                                                                |
 | ------------------ | -------- | --------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | python_version     | True     | N/A       | Matrix job Python version                                                                                                                                                                                                  |
-| artefact_name      | False    |           | Custom name for downloaded artefacts (defaults to project name). Useful when building for different platforms/architectures to avoid artefact name conflicts                                                               |
+| artefact_name      | False    |           | Custom name for downloaded artefacts (defaults to the `build-metadata-action` project name; see Artefact name). Useful when building for different platforms/architectures to avoid artefact name conflicts                |
 | permit_fail        | False    | False     | Continue/pass even when the audit fails. Accepts `true` or `false` (any case); any other value, including an empty string, fails the action.                                                                               |
 | artefact_path      | False    | "dist"    | Path/location to build artefacts                                                                                                                                                                                           |
 | summary            | False    | True      | Whether pypa/gh-action-pip-audit generates summary output                                                                                                                                                                  |
