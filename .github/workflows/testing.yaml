@@ -515,3 +515,31 @@ jobs:
           uv run --locked python -m pytest \
             tests/test_permit_fail_validation.py \
             tests/test_dependency_cache.py -q
+
+  ### Unit cover for issue #290: allow-list fetch retries ###
+  tests-allow-list-fetch:
+    name: "Test Allow-list Fetch Retries"
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+    timeout-minutes: 5
+    steps:
+      - name: "Checkout repository"
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: "Install uv"
+        # yamllint disable-line rule:line-length
+        uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
+        with:
+          # Pin the installer too; the action SHA alone leaves uv floating.
+          version: "0.13.4"
+          python-version: "3.13"
+
+      - name: "Run allow-list fetch retry tests"
+        shell: bash
+        run: |
+          # Hash-pinned via uv.lock; --locked rejects lockfile drift.
+          uv run --locked python -m pytest \
+            tests/test_allow_list_fetch.py -q

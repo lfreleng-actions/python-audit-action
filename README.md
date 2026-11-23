@@ -168,6 +168,19 @@ This behaviour is automatic: when the default URL returns a 404
 explicitly-supplied `allow_list_path` or `allow_list_url` that
 fails to load is a hard error.
 
+The action retries transient fetch failures, from the default URL
+or from `allow_list_url`: HTTP 403, 408, 429 and 5xx, and
+connection-level errors (DNS failure, connection refused or reset,
+timeout, TLS handshake failure, empty reply). It makes up to five
+attempts, waiting 2, 5, 10 and 20 seconds between them, or longer
+when the server sends a `Retry-After` header (capped at 30
+seconds). Each attempt has a 15 second timeout, and the whole fetch
+stays within about 90 seconds, so a real outage still fails the
+job. Each retry logs a warning, and the final error states the
+number of attempts the action made. The action never retries a 404,
+which follows the rule above, nor any other 4xx status or a file
+over 1 MiB; those last two fail at once.
+
 ```yaml
       - name: "Audit project dependencies"
         uses: lfreleng-actions/python-audit-action@main
