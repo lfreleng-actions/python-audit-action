@@ -212,7 +212,18 @@ runs:
           exit 1
         fi
 
-    - name: '⬇ Download build artefacts'
+    # GitHub's artefact service can fail to list an artefact for a few
+    # seconds after its upload, so a download in the job that uploaded
+    # it can miss. Each attempt after the first runs only when the one
+    # before it failed, after a wait: five attempts, waiting 2, 4, 8
+    # and 16 seconds between them. Any failure is retried, since a miss
+    # cannot be told from another failure here: artefact_path may hold
+    # files before the download. Only the last attempt lacks
+    # continue-on-error, so its failure fails the action and every
+    # later step, which runs on success() alone, is skipped.
+    - name: '⬇ Download build artefacts [1/5]'
+      id: download_1
+      continue-on-error: true
       # yamllint disable-line rule:line-length
       uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
       with:
@@ -221,6 +232,143 @@ runs:
           ${{ inputs.artefact_name ||
               steps.naming.outputs.project_name }}
         path: "${{ inputs.artefact_path }}"
+
+    - name: 'Wait before download attempt 2 of 5'
+      if: ${{ steps.download_1.outcome == 'failure' }}
+      shell: bash
+      env:
+        # yamllint disable-line rule:line-length
+        ARTEFACT_NAME: "${{ inputs.artefact_name || steps.naming.outputs.project_name }}"
+        ATTEMPT: '1'
+        MAX_ATTEMPTS: '5'
+        DELAY: '2'
+      run: |
+        # Wait before the next download attempt
+        set -euo pipefail
+        printf 'Artefact %q not downloaded on attempt %s of %s;' \
+          "$ARTEFACT_NAME" "$ATTEMPT" "$MAX_ATTEMPTS"
+        printf ' retrying in %ss\n' "$DELAY"
+        sleep "$DELAY"
+
+    - name: '⬇ Download build artefacts [2/5]'
+      id: download_2
+      if: ${{ steps.download_1.outcome == 'failure' }}
+      continue-on-error: true
+      # yamllint disable-line rule:line-length
+      uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+      with:
+        # yamllint disable-line rule:line-length
+        name: >-
+          ${{ inputs.artefact_name ||
+              steps.naming.outputs.project_name }}
+        path: "${{ inputs.artefact_path }}"
+
+    - name: 'Wait before download attempt 3 of 5'
+      if: ${{ steps.download_2.outcome == 'failure' }}
+      shell: bash
+      env:
+        # yamllint disable-line rule:line-length
+        ARTEFACT_NAME: "${{ inputs.artefact_name || steps.naming.outputs.project_name }}"
+        ATTEMPT: '2'
+        MAX_ATTEMPTS: '5'
+        DELAY: '4'
+      run: |
+        # Wait before the next download attempt
+        set -euo pipefail
+        printf 'Artefact %q not downloaded on attempt %s of %s;' \
+          "$ARTEFACT_NAME" "$ATTEMPT" "$MAX_ATTEMPTS"
+        printf ' retrying in %ss\n' "$DELAY"
+        sleep "$DELAY"
+
+    - name: '⬇ Download build artefacts [3/5]'
+      id: download_3
+      if: ${{ steps.download_2.outcome == 'failure' }}
+      continue-on-error: true
+      # yamllint disable-line rule:line-length
+      uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+      with:
+        # yamllint disable-line rule:line-length
+        name: >-
+          ${{ inputs.artefact_name ||
+              steps.naming.outputs.project_name }}
+        path: "${{ inputs.artefact_path }}"
+
+    - name: 'Wait before download attempt 4 of 5'
+      if: ${{ steps.download_3.outcome == 'failure' }}
+      shell: bash
+      env:
+        # yamllint disable-line rule:line-length
+        ARTEFACT_NAME: "${{ inputs.artefact_name || steps.naming.outputs.project_name }}"
+        ATTEMPT: '3'
+        MAX_ATTEMPTS: '5'
+        DELAY: '8'
+      run: |
+        # Wait before the next download attempt
+        set -euo pipefail
+        printf 'Artefact %q not downloaded on attempt %s of %s;' \
+          "$ARTEFACT_NAME" "$ATTEMPT" "$MAX_ATTEMPTS"
+        printf ' retrying in %ss\n' "$DELAY"
+        sleep "$DELAY"
+
+    - name: '⬇ Download build artefacts [4/5]'
+      id: download_4
+      if: ${{ steps.download_3.outcome == 'failure' }}
+      continue-on-error: true
+      # yamllint disable-line rule:line-length
+      uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+      with:
+        # yamllint disable-line rule:line-length
+        name: >-
+          ${{ inputs.artefact_name ||
+              steps.naming.outputs.project_name }}
+        path: "${{ inputs.artefact_path }}"
+
+    - name: 'Wait before download attempt 5 of 5'
+      if: ${{ steps.download_4.outcome == 'failure' }}
+      shell: bash
+      env:
+        # yamllint disable-line rule:line-length
+        ARTEFACT_NAME: "${{ inputs.artefact_name || steps.naming.outputs.project_name }}"
+        ATTEMPT: '4'
+        MAX_ATTEMPTS: '5'
+        DELAY: '16'
+      run: |
+        # Wait before the next download attempt
+        set -euo pipefail
+        printf 'Artefact %q not downloaded on attempt %s of %s;' \
+          "$ARTEFACT_NAME" "$ATTEMPT" "$MAX_ATTEMPTS"
+        printf ' retrying in %ss\n' "$DELAY"
+        sleep "$DELAY"
+
+    - name: '⬇ Download build artefacts [5/5]'
+      id: download_5
+      if: ${{ steps.download_4.outcome == 'failure' }}
+      # yamllint disable-line rule:line-length
+      uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+      with:
+        # yamllint disable-line rule:line-length
+        name: >-
+          ${{ inputs.artefact_name ||
+              steps.naming.outputs.project_name }}
+        path: "${{ inputs.artefact_path }}"
+
+    # The last attempt has already failed the action; this names the
+    # artefact and the attempt count, then keeps the action failed.
+    - name: 'Report artefact download failure'
+      if: ${{ failure() && steps.download_5.outcome == 'failure' }}
+      shell: bash
+      env:
+        # yamllint disable-line rule:line-length
+        ARTEFACT_NAME: "${{ inputs.artefact_name || steps.naming.outputs.project_name }}"
+        MAX_ATTEMPTS: '5'
+      run: |
+        # Report artefact download failure
+        set -euo pipefail
+        # %q renders the name on one line, so it cannot inject a
+        # workflow command through an embedded newline.
+        printf '::error::Artefact %q not downloaded after %s attempts\n' \
+          "$ARTEFACT_NAME" "$MAX_ATTEMPTS"
+        exit 1
 
     - name: "Setup Python ${{ inputs.python_version }}"
       # yamllint disable-line rule:line-length

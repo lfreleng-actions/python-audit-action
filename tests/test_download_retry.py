@@ -23,7 +23,6 @@ import re
 import subprocess
 from pathlib import Path
 
-import pytest
 import yaml
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
@@ -81,7 +80,6 @@ def _run_script(
     return proc, log.read_text()
 
 
-@pytest.mark.xfail(strict=True, reason="download retry not yet added")
 def test_download_has_fixed_number_of_attempts():
     """Five attempts, each with its own id and the same pin and inputs."""
     steps = _steps()
@@ -118,7 +116,6 @@ def test_only_the_last_attempt_fails_the_action():
     assert "continue-on-error" not in steps[indices[-1]], steps[indices[-1]]
 
 
-@pytest.mark.xfail(strict=True, reason="download retry not yet added")
 def test_a_wait_lies_between_attempts(tmp_path):
     """One wait step between each pair of attempts, gated and sleeping."""
     steps = _steps()
@@ -141,7 +138,6 @@ def test_a_wait_lies_between_attempts(tmp_path):
     assert slept == DELAYS, slept
 
 
-@pytest.mark.xfail(strict=True, reason="download retry not yet added")
 def test_final_failure_names_artefact_and_attempts(tmp_path):
     """After the last miss, the action says what and how often it tried."""
     steps = _steps()
