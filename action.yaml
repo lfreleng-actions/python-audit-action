@@ -188,6 +188,7 @@ runs:
       uses: lfreleng-actions/build-metadata-action@689e13653176908922b12f85cb93b061c467ba6f  # v0.13.2
       with:
         path_prefix: "${{ inputs.path_prefix || '.' }}"
+        project_type: 'python'
         use_version_extract: 'false'
         include_environment: 'false'
         artifact_upload: 'false'

@@ -279,6 +279,86 @@ jobs:
           path_prefix: "test-python-project/"
           artefact_name: "test-python-project-x64"
 
+  ### Test a Python project beside another project type's marker ###
+  tests-python-project-type:
+    name: "Test Python Project Type"
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+    timeout-minutes: 12
+    steps:
+      - name: "Checkout sample project repository"
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          repository: "lfreleng-actions/test-python-project"
+          path: "test-python-project"
+
+      # Artefact names are scoped to the workflow run, and the tests job
+      # uploads one under the fixture's own project name, so rename the
+      # project to give this job's artefact a name of its own
+      - name: "Rename Python project"
+        shell: bash
+        run: |
+          # Rename Python project
+          cat > /tmp/rename_project.py << 'EOF'
+          import pathlib, re, tomllib
+
+          toml_path = pathlib.Path("test-python-project/pyproject.toml")
+          raw = toml_path.read_text()
+          tomllib.loads(raw)
+
+          new_name = "lfreleng-test-python-project-type"
+          updated, count = re.subn(
+              r'^name\s*=\s*"lfreleng-test-python-project"\s*$',
+              f'name = "{new_name}"',
+              raw,
+              count=1,
+              flags=re.MULTILINE,
+          )
+          assert count == 1, "project name not found in pyproject.toml"
+          toml_path.write_text(updated)
+
+          name = tomllib.loads(updated)["project"]["name"]
+          assert name == new_name, f"name mismatch: {name} != {new_name}"
+          print(f"Project renamed to {name} ✅")
+          EOF
+          python3 /tmp/rename_project.py
+
+      # Name the artefact after the project, so the test does not
+      # depend on how the build action names one
+      - name: "Build Python project"
+        id: build-python
+        # yamllint disable-line rule:line-length
+        uses: lfreleng-actions/python-build-action@cb2041b440894cd2af2b3e90c2f14ff75f0fccbe # v2.1.3
+        with:
+          path_prefix: "test-python-project/"
+          artefact_name: "lfreleng-test-python-project-type"
+          tox_build: false
+
+      # build-metadata-action ranks package.json above pyproject.toml
+      # when it detects the project type itself
+      - name: "Add package.json naming another project"
+        shell: bash
+        run: |
+          # Add package.json naming another project
+          cat > test-python-project/package.json << 'EOF'
+          {
+            "name": "node-side",
+            "version": "1.0.0",
+            "private": true,
+            "devDependencies": {}
+          }
+          EOF
+
+      # Fails if the action looks for the artefact under node-side
+      - name: "Run action with no artefact_name"
+        uses: $/
+        with:
+          # yamllint disable-line rule:line-length
+          python_version: "${{ steps.build-python.outputs.build_python_version }}"
+          path_prefix: "test-python-project/"
+
   ### Verify the action stops when it cannot name the artefact ###
   tests-empty-project-name:
     name: "Test Empty Project Name Guard"
