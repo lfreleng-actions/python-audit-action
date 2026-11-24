@@ -26,7 +26,7 @@ import yaml
 REPO_ROOT = Path(__file__).resolve().parents[1]
 NAMING_STEP_ID = "naming"
 GUARD_STEP = "Check artefact name"
-DOWNLOAD_STEP = "⬇ Download build artefacts"
+DOWNLOAD_ACTION = "actions/download-artifact@"
 
 
 def _steps() -> list[dict]:
@@ -40,6 +40,17 @@ def _index(match) -> int:
     found = [i for i, s in enumerate(_steps()) if match(s)]
     assert len(found) == 1, found
     return found[0]
+
+
+def _download_indices() -> list[int]:
+    """Return the indices of the download attempts, in order."""
+    found = [
+        i
+        for i, s in enumerate(_steps())
+        if str(s.get("uses", "")).startswith(DOWNLOAD_ACTION)
+    ]
+    assert found, "no download step found"
+    return found
 
 
 def _guard_step() -> dict:
@@ -91,17 +102,17 @@ def test_guard_reads_the_names_the_download_uses():
         "ARTEFACT_NAME": "${{ inputs.artefact_name }}",
         "PROJECT_NAME": "${{ steps.naming.outputs.project_name }}",
     }
-    download = _steps()[_index(lambda s: s.get("name") == DOWNLOAD_STEP)]
-    name = " ".join(download["with"]["name"].split())
-    assert name == (
-        "${{ inputs.artefact_name || steps.naming.outputs.project_name }}"
-    ), name
+    for i in _download_indices():
+        name = " ".join(_steps()[i]["with"]["name"].split())
+        assert name == (
+            "${{ inputs.artefact_name || steps.naming.outputs.project_name }}"
+        ), name
 
 
 def test_guard_runs_after_naming_and_before_download():
     """The guard sees the resolved name and stops before any download."""
     naming = _index(lambda s: s.get("id") == NAMING_STEP_ID)
     guard = _index(lambda s: s.get("name") == GUARD_STEP)
-    download = _index(lambda s: s.get("name") == DOWNLOAD_STEP)
+    download = _download_indices()[0]
     assert naming < guard < download, (naming, guard, download)
     assert "if" not in _guard_step(), "the guard must run unconditionally"

@@ -70,8 +70,13 @@ def test_cache_key_has_no_workspace_wide_globs():
 
 def test_artefacts_downloaded_before_cache_key_is_computed():
     """hashFiles() needs the wheels on disk when the cache step runs."""
-    download = _index(lambda s: str(s.get("uses", "")).startswith(DOWNLOAD_ACTION))
-    assert download < _cache_index()
+    downloads = [
+        i
+        for i, s in enumerate(_steps())
+        if str(s.get("uses", "")).startswith(DOWNLOAD_ACTION)
+    ]
+    assert downloads, "no download step found"
+    assert max(downloads) < _cache_index()
 
 
 def test_cache_restored_before_install():

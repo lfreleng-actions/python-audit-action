@@ -70,6 +70,15 @@ the name the build job reports, skips it. With `artefact_name` unset
 and no project name found under `path_prefix`, the action fails
 before any download.
 
+GitHub's artefact service can fail to list an artefact for a second or
+two after its upload, so a download in the job that uploaded it can
+miss. The action makes up to five download attempts, waiting 2, 4, 8
+and 16 seconds after the first four, thirty seconds in all. It retries
+any failed download, as it cannot tell a miss from another failure. A
+download that succeeds at once adds no wait. When every attempt fails,
+the action fails with an error naming the artefact and the number of
+attempts, and runs no later step.
+
 ### Multi-Architecture Example
 
 When auditing builds for different architectures, use the `artefact_name` input
