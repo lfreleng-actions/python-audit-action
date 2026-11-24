@@ -61,11 +61,14 @@ later job steps alone: the project under audit, its dependencies and
 Without `artefact_name`, the action downloads the artefact named
 after the project: the `project_name` output of
 `lfreleng-actions/build-metadata-action`, the name
-`python-build-action` uploads under. That lookup adds
-`actions/setup-go` and a `go build` of the action to the job, about
-half a minute per run. Passing `artefact_name`, such as the name the
-build job reports, skips it. With `artefact_name` unset and no project
-name found under `path_prefix`, the action fails before any download.
+`python-build-action` uploads under. The action declares the project
+type as `python`, so a `package.json`, `go.mod` or other marker file
+beside the Python project files does not change the name. That
+lookup adds `actions/setup-go` and a `go build` of the action to the
+job, about half a minute per run. Passing `artefact_name`, such as
+the name the build job reports, skips it. With `artefact_name` unset
+and no project name found under `path_prefix`, the action fails
+before any download.
 
 ### Multi-Architecture Example
 
