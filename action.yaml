@@ -185,7 +185,7 @@ runs:
       id: naming
       if: inputs.artefact_name == ''
       # yamllint disable-line rule:line-length
-      uses: lfreleng-actions/build-metadata-action@689e13653176908922b12f85cb93b061c467ba6f  # v0.13.2
+      uses: lfreleng-actions/build-metadata-action@71fc970a964ce63d75e7e32d6f905d7db0ec569f  # v0.13.4
       with:
         path_prefix: "${{ inputs.path_prefix || '.' }}"
         project_type: 'python'
